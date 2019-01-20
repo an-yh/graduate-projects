@@ -1,0 +1,563 @@
+---
+title: "Religious Primes and Morality Study"
+author: "Daniel Yi"
+date: "September 25, 2018"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Religion and Morality Study (Short Form)
+## Organizing Data
+```{r}
+library(readr)
+library(lavaan)
+library(semTools)
+
+rm.ds <- read_csv("~/Research Study/Studies/Religion and Morality Study/Data/rm data (sf).csv")
+
+# Remove Cases
+rm.ds <- rm.ds[rm.ds$a.tot <= 1 | is.na(rm.ds$a.tot),] # Remove 0
+rm.ds <- rm.ds[rm.ds$i.tot <= 1 | is.na(rm.ds$i.tot),] # Remove 3
+rm.ds <- rm.ds[rm.ds$c.tot <= 2 | is.na(rm.ds$c.tot),] # Remove 2
+rm.ds <- rm.ds[rm.ds$susp_code <= 2,] # Remove 1
+
+# Factor Condition
+rm.ds$condition <- factor(rm.ds$condition, levels = c(0,1,2), labels = c("Control", "Agent", "Institutional"))
+rm.ds$condA <- ifelse(rm.ds$condition == "Agent", 1, 0)
+rm.ds$condI <- ifelse(rm.ds$condition == "Institutional", 1,0)
+
+# Convenience Variables
+careItems <- paste0("care", 1:6)
+fairItems <- paste0("fairness", 1:6)
+groupItems <- paste0("ingroup", 1:6)
+authItems <- paste0("authority", 1:6)
+pureItems <- paste0("purity", 1:6)
+
+inItems <- paste0("ie", c(2,4,7,9,10,13,14,15,18,19))
+exItems <- paste0("ie", c(1,3,5,6,8,11,12,16,17,20))
+
+rfItems <- paste0('rf',1:12)
+RFRevItems <- paste0('rf',c(2,4,7,9,10,12))
+rm.ds[,paste0('rf',c(2,4,7,9,10,12),'r')] <- rm.ds[,RFRevItems]
+rm.ds[RFRevItems] <- 10 - rm.ds[RFRevItems]
+
+rm.ds$ses <- 6-rm.ds$ses  #reverse-score (goes from low to high)
+
+rm.ds$big[rm.ds$big == 3] <- 2  #re-code so 3s become 2
+rm.ds$big <- ifelse(rm.ds$big == 2, 0, 1) #re-code 0=no; 1=yes
+
+rm.ds$polaff <- 8-rm.ds$polaff #reverse-score so 1=Very Liberal; 7=Very Conservative
+```
+## Demographics
+```{r}
+table(rm.ds$sex)  #1=male ;2=female
+mean(rm.ds$age)
+table(rm.ds$race) #1=AA; 2=A; 3=H; 4=NA; 5=C; 6=Other
+table(rm.ds$ses)  #1=Lower; 3=Middle; 5=Upper
+table(rm.ds$education)  #1=Some HS; 5=Post-grad
+table(rm.ds$big)
+table(rm.ds$relaff) #1=P; 2=C; 3=B; 4=H; 5=J; 6=M; 7=N; 8=Ath; 9=Agn; 10=Other
+table(rm.ds$if_rel) #1=No overlap; 5=Complete overlap
+table(rm.ds$pray) #1=Never; 6=+1/day
+table(rm.ds$relserv)  #1=Never; 6=+1/week
+table(rm.ds$relint) #1=Not at all; 5=Moderately; 9=Extremely
+table(rm.ds$for_policy) #1=Very liberal; 7=Very conservative
+table(rm.ds$eco_policy)
+table(rm.ds$soc_policy)
+table(rm.ds$rel_policy)
+table(rm.ds$polaff) #1=Very liberal; 7=Very conservative
+```
+## Scale Scores
+```{r}
+rm.ds[,careItems] <- scale(rm.ds[,careItems])
+rm.ds[,fairItems] <- scale(rm.ds[,fairItems])
+rm.ds[,groupItems] <- scale(rm.ds[,groupItems])
+rm.ds[,authItems] <- scale(rm.ds[,authItems])
+rm.ds[,pureItems] <- scale(rm.ds[,pureItems])
+
+rm.ds[,inItems] <- scale(rm.ds[,inItems])
+rm.ds[,exItems] <- scale(rm.ds[,exItems])
+
+rm.ds[,rfItems] <- scale(rm.ds[,rfItems])
+
+rm.ds$if_rel <- scale(rm.ds$if_rel)
+rm.ds$pray <- scale(rm.ds$pray)
+rm.ds$relserv <- scale(rm.ds$relserv)
+rm.ds$relint <- scale(rm.ds$relint)
+rm.ds$polaff <- scale(rm.ds$polaff)
+```
+## Testing correlations between religiosity and moral foundations
+```{r}
+cor.mod <- '
+care =~ care1 + care2 + care3 + care4 + care5 + care6
+fair =~ fairness1 + fairness2 + fairness3 + fairness4 + fairness5 + fairness6
+group =~ ingroup1 + ingroup2 + ingroup3 + ingroup4 + ingroup5 + ingroup6
+auth =~ authority1 + authority2 + authority3 + authority4 + authority5 + authority6
+pure =~ purity1 + purity2 + purity3 + purity4 + purity5 + purity6
+
+intr =~ ie2 + ie4 + ie7 + ie9 + ie10 + ie13 + ie14 + ie15 + ie18 + ie19
+extr =~ ie1 + ie3 + ie5 + ie6 + ie8 + ie11 + ie12 + ie16 + ie17 + ie20
+
+rf =~ rf1 + rf2 + rf3 + rf4 + rf5 + rf6 + rf7 + rf8 + rf9 + rf10 + rf11 + rf12
+
+BiG =~ big
+ident =~ if_rel
+prayer =~ pray
+attend =~ relserv
+interest =~ relint
+
+pol =~ polaff
+'
+cor.fit <- sem(cor.mod, rm.ds, mimic="Mplus", meanstructure = TRUE, std.lv = T, missing = "fiml")
+summary(cor.fit, standardized=TRUE, fit.measure=TRUE)
+```
+## Testing effects of condition on moral foundations
+```{r}
+mod <- '
+care =~ care1 + care2 + care3 + care4 + care5 + care6
+fair =~ fairness1 + fairness2 + fairness3 + fairness4 + fairness5 + fairness6
+group =~ ingroup1 + ingroup2 + ingroup3 + ingroup4 + ingroup5 + ingroup6
+auth =~ authority1 + authority2 + authority3 + authority4 + authority5 + authority6
+pure =~ purity1 + purity2 + purity3 + purity4 + purity5 + purity6
+
+care ~ condA + condI + polaff + condA:polaff + condI:polaff
+fair ~ condA + condI + polaff + condA:polaff + condI:polaff
+group ~ condA + condI + polaff + condA:polaff + condI:polaff
+auth ~ condA + condI + polaff + condA:polaff + condI:polaff
+pure ~ condA + condI + polaff + condA:polaff + condI:polaff
+'
+fit <- sem(mod, rm.ds, mimic = "Mplus", meanstructure = TRUE, missing = "fiml")
+summary(fit, standardized = TRUE, fit.measure = TRUE)
+```
+## Alpha
+```{r}
+care.mod <- '
+care =~ care1 + care2 + care3 + care4 + care5 + care6
+'
+care.fit <- sem(care.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "fiml")
+round(reliability(care.fit), digits = 3)
+
+
+fair.mod <- '
+fair =~ fairness1 + fairness2 + fairness3 + fairness4 + fairness5 + fairness6
+'
+fair.fit <- sem(fair.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "fiml")
+round(reliability(fair.fit), digits = 3)
+
+group.mod <- '
+group =~ ingroup1 + ingroup2 + ingroup3 + ingroup4 + ingroup5 + ingroup6
+'
+group.fit <- sem(group.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "fiml")
+round(reliability(group.fit), digits = 3)
+
+auth.mod <- '
+auth =~ authority1 + authority2 + authority3 + authority4 + authority5 + authority6
+'
+auth.fit <- sem(auth.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "fiml")
+round(reliability(auth.fit), digits = 3)
+
+pure.mod <- '
+pure =~ purity1 + purity2 + purity3 + purity4 + purity5 + purity6
+'
+pure.fit <- sem(pure.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "fiml")
+round(reliability(pure.fit), digits = 3)
+
+intr.mod <- '
+intr =~ ie2 + ie4 + ie7 + ie9 + ie10 + ie13 + ie14 + ie15 + ie18 + ie19
+'
+intr.fit <- sem(intr.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "fiml")
+round(reliability(intr.fit), digits = 3)
+
+extr.mod <- '
+extr =~ ie1 + ie3 + ie5 + ie6 + ie8 + ie11 + ie12 + ie16 + ie17 + ie20
+'
+extr.fit <- sem(extr.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "fiml")
+round(reliability(extr.fit), digits = 3)
+
+rf.mod <- '
+rf =~ rf1 + rf2 + rf3 + rf4 + rf5 + rf6 + rf7 + rf8 + rf9 + rf10 + rf11 + rf12
+'
+rf.fit <- sem(rf.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "fiml")
+round(reliability(rf.fit), digits = 3)
+```
+# Religion and Morality Study (Long Form)
+## Organizing Data
+```{r}
+library(readr)
+library(lavaan)
+library(semTools)
+
+rm.ds <- read_csv("~/Research Study/Studies/Religion and Morality Study/Data/rm data (lf).csv")
+
+# Remove Cases
+rm.ds <- rm.ds[rm.ds$country == 0,] # Removes non-US participants (4 from the 2nd wave were located in India)
+rm.ds <- rm.ds[rm.ds$a.tot <= 1 | is.na(rm.ds$a.tot),] # Remove 1
+rm.ds <- rm.ds[rm.ds$i.tot <= 1 | is.na(rm.ds$i.tot),] # Remove 2
+rm.ds <- rm.ds[rm.ds$c.tot <= 2 | is.na(rm.ds$c.tot),] # Remove 2
+rm.ds <- rm.ds[rm.ds$susp_code <= 2 | is.na(rm.ds$susp_code),]  # Remove 2
+
+# Factor Condition
+rm.ds$condition <- factor(rm.ds$condition, levels = c(0,1,2), labels = c("Control", "Agent", "Institutional"))
+rm.ds$condA <- ifelse(rm.ds$condition == "Agent", 1, 0)
+rm.ds$condI <- ifelse(rm.ds$condition == "Institutional", 1,0)
+
+# Convenience Variables
+careItems <- paste0("care", 1:6)
+fairItems <- paste0("fairness", 1:6)
+groupItems <- paste0("ingroup", c(1:2, 4:6))
+authItems <- paste0("authority", 1:6)
+pureItems <- paste0("purity", 1:6)
+
+econItems <- paste0("economic", 1:8)
+  rm.ds$mfqB26 <- 7-rm.ds$economic5 #reverse-score
+  rm.ds$mfqB33 <- 7-rm.ds$economic7 #reverse-score
+lifeItems <- paste0("lifestyle", 1:3)
+
+inItems <- paste0("ie", c(2,4,7,9,10,13,14,15,18,19))
+exItems <- paste0("ie", c(1,3,5,6,8,11,12,16,17,20))
+qItems <- paste0("q", 1:12)
+  rqItems <- paste0("q", 6:7)
+  rm.ds[,paste0("q", 6:7, "r")] <- rm.ds[, rqItems]
+  rm.ds[rqItems] <- 10 - rm.ds[rqItems]
+
+rfItems <- paste0('rf',1:12)
+RFRevItems <- paste0('rf',c(2,4,7,9,10,12))
+rm.ds[,paste0('rf',c(2,4,7,9,10,12),'r')] <- rm.ds[,RFRevItems]
+rm.ds[RFRevItems] <- 10 - rm.ds[RFRevItems]
+
+rm.ds$ses <- 6-rm.ds$ses  #reverse-score
+
+
+rm.ds$big <- ifelse(rm.ds$big == 1, 3,
+                    ifelse(rm.ds$big == 2, 1, 2)) #1=No; 2=Uncertain; 3=Yes
+#rm.ds$big[rm.ds$big == 1] <- 3
+#rm.ds$big[rm.ds$big == 2] <- 1
+#rm.ds$big[rm.ds$big == 3] <- 2  #re-code so 3s become 2
+
+rm.ds$polaff <- 8-rm.ds$polaff #reverse-score so 1=Very Liberal; 7=Very Conservative
+```
+## Demographics
+```{r}
+table(rm.ds$sex)  #1=male ;2=female
+mean(rm.ds$age)
+table(rm.ds$race) #1=AA; 2=A; 3=H; 4=NA; 5=C; 6=Other
+table(rm.ds$us)
+table(rm.ds$ses)  #1=Lower; 3=Middle; 5=Upper
+table(rm.ds$income) #1:10k<; 7:150k>
+table(rm.ds$education)  #1=Some HS; 5=Post-grad
+table(rm.ds$big)
+table(rm.ds$relaff) #1=P; 2=C; 3=B; 4=H; 5=J; 6=M; 7=N; 8=Ath; 9=Agn; 10=Other
+table(rm.ds$if_rel) #1=No overlap; 5=Complete overlap
+table(rm.ds$pray) #1=Never; 6=+1/day
+table(rm.ds$relserv)  #1=Never; 6=+1/week
+table(rm.ds$relint) #1=Not at all; 5=Moderately; 9=Extremely
+table(rm.ds$for_pol) #1=Very liberal; 7=Very conservative
+table(rm.ds$eco_pol)
+table(rm.ds$soc_pol)
+table(rm.ds$rel_pol)
+table(rm.ds$polaff) #1=Very liberal; 7=Very conservative
+```
+## Scale
+```{r}
+rm.ds[,careItems] <- scale(rm.ds[,careItems])
+rm.ds[,fairItems] <- scale(rm.ds[,fairItems])
+rm.ds[,groupItems] <- scale(rm.ds[,groupItems])
+rm.ds[,authItems] <- scale(rm.ds[,authItems])
+rm.ds[,pureItems] <- scale(rm.ds[,pureItems])
+
+rm.ds[,econItems] <- scale(rm.ds[,econItems])
+rm.ds[,lifeItems] <- scale(rm.ds[,lifeItems])
+
+rm.ds[,inItems] <- scale(rm.ds[,inItems])
+rm.ds[,exItems] <- scale(rm.ds[,exItems])
+rm.ds[,qItems] <- scale(rm.ds[,qItems])
+
+rm.ds[,rfItems] <- scale(rm.ds[,rfItems])
+
+rm.ds$rel_if <- scale(rm.ds$rel_if)
+rm.ds$pray <- scale(rm.ds$pray)
+rm.ds$relserv <- scale(rm.ds$relserv)
+rm.ds$relint <- scale(rm.ds$relint)
+rm.ds$polaff <- scale(rm.ds$polaff)
+```
+## Testing correlations between religiosity and moral foundations
+```{r}
+cor.mod <- '
+care =~ care1 + care2 + care3 + care4 + care5 + care6
+fair =~ fairness1 + fairness2 + fairness3 + fairness4 + fairness5 + fairness6
+group =~ ingroup1 + ingroup2 + ingroup4 + ingroup5 + ingroup6
+auth =~ authority1 + authority2 + authority3 + authority4 + authority5 + authority6
+pure =~ purity1 + purity2 + purity3 + purity4 + purity5 + purity6
+
+econ =~ economic1 + economic2 + economic3 + economic4 + economic5 + economic6 + economic7 + economic8
+life =~ lifestyle1 + lifestyle2 + lifestyle3
+
+quest =~ q1 + q2 + q3 + q4 + q5 + q6 + q7 + q8 + q9 + q10 + q11 + q12
+intr =~ ie2 + ie4 + ie7 + ie9 + ie10 + ie13 + ie14 + ie15 + ie18 + ie19
+extr =~ ie1 + ie3 + ie5 + ie6 + ie8 + ie11 + ie12 + ie16 + ie17 + ie20
+
+rf =~ rf1 + rf2 + rf3 + rf4 + rf5 + rf6 + rf7 + rf8 + rf9 + rf10 + rf11 + rf12
+
+BiG =~ big
+ident =~ rel_if
+prayer =~ pray
+attend =~ relserv
+interest =~ relint
+
+pol =~ polaff
+'
+cor.fit <- sem(cor.mod, rm.ds, mimic="Mplus", meanstructure = TRUE, std.lv = T, missing = "fiml")
+summary(cor.fit, standardized=TRUE, fit.measure=TRUE)
+```
+## Testing effects of condition on moral foundations
+```{r}
+mod <- '
+#care =~ care1 + care2 + care3 + care4 + care5 + care6
+#fair =~ fairness1 + fairness2 + fairness3 + fairness4 + fairness5 + fairness6
+  ind =~ care1 + care2 + care3 + care4 + care5 + care6 + fairness1 + fairness2 + fairness3 + fairness4 + fairness5 + fairness6
+#group =~ ingroup1 + ingroup2 + ingroup4 + ingroup5 + ingroup6
+#auth =~ authority1 + authority2 + authority3 + authority4 + authority5 + authority6
+#pure =~ purity1 + purity2 + purity3 + purity4 + purity5 + purity6
+  bind =~ ingroup1 + ingroup2 + ingroup4 + ingroup5 + ingroup6 + authority1 + authority2 + authority3 + authority4 + authority5 + authority6 + purity1 + purity2 + purity3 + purity4 + purity5 + purity6
+
+#econ =~ economic1 + economic2 + economic3 + economic4 + economic5 + economic6 + economic7 + economic8
+#life =~ lifestyle1 + lifestyle2 + lifestyle3
+  lib =~ economic1 + economic2 + economic3 + economic4 + economic5 + economic6 + economic7 + economic8 + lifestyle1 + lifestyle2 + lifestyle3
+
+#care ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+#fair ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+  ind ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+#group ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+#auth ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+#pure ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+  bind ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+
+#econ ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+#life ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+  lib ~ condA + condI + big + condA:big + condI:big #+ polaff + condA:polaff + condI:polaff
+'
+fit <- sem(mod, rm.ds, mimic = "Mplus", meanstructure = TRUE, missing = "fiml", std.lv = TRUE)
+summary(fit, standardized = TRUE, fit.measure = TRUE)
+```
+## Alpha
+```{r}
+care.mod <- '
+care =~ care1 + care2 + care3 + care4 + care5 + care6
+'
+care.fit <- sem(care.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(care.fit), digits = 3)
+
+fair.mod <- '
+fair =~ fairness1 + fairness2 + fairness3 + fairness4 + fairness5 + fairness6
+'
+fair.fit <- sem(fair.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(fair.fit), digits = 3)
+
+group.mod <- '
+group =~ ingroup1 + ingroup2 + ingroup4 + ingroup5 + ingroup6
+'
+group.fit <- sem(group.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(group.fit), digits = 3)
+
+auth.mod <- '
+auth =~ authority1 + authority2 + authority3 + authority4 + authority5 + authority6
+'
+auth.fit <- sem(auth.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(auth.fit), digits = 3)
+
+pure.mod <- '
+pure =~ purity1 + purity2 + purity3 + purity4 + purity5 + purity6
+'
+pure.fit <- sem(pure.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(pure.fit), digits = 3)
+
+econ.mod <- '
+econ =~ economic1 + economic2 + economic3 + economic4 + economic5 + economic6 + economic7 + economic8
+'
+econ.fit <- sem(econ.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(econ.fit), digits = 3)
+
+life.mod <- '
+life =~ lifestyle1 + lifestyle2 + lifestyle3
+'
+life.fit <- sem(life.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(life.fit), digits = 3)
+
+quest.mod <- '
+quest =~ q1 + q2 + q3 + q4 + q5 + q6 + q7 + q8 + q9 + q10 + q11 + q12
+'
+quest.fit <- sem(quest.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(quest.fit), digits = 3)
+
+intr.mod <- '
+intr =~ ie2 + ie4 + ie7 + ie9 + ie10 + ie13 + ie14 + ie15 + ie18 + ie19
+'
+intr.fit <- sem(intr.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(intr.fit), digits = 3)
+
+extr.mod <- '
+extr =~ ie1 + ie3 + ie5 + ie6 + ie8 + ie11 + ie12 + ie16 + ie17 + ie20
+'
+extr.fit <- sem(extr.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(extr.fit), digits = 3)
+
+rf.mod <- '
+rf =~ rf1 + rf2 + rf3 + rf4 + rf5 + rf6 + rf7 + rf8 + rf9 + rf10 + rf11 + rf12
+'
+rf.fit <- sem(rf.mod, rm.ds, mimic = "Mplus", meanstructure = T, std.lv = T, missing = "FIML")
+round(reliability(rf.fit), digits = 3)
+```
+
+#################################################################################################
+
+#Bayesian Approach
+#Stan Analysis
+```{r}
+library(rstan)
+options(mc.cores=4)
+library(shinystan)
+library(readr)
+
+# Set WD
+#setwd("Research Study/Studies/Religious Primes and Morality/")
+
+# Read in data
+ds <- read_csv("~/Research Study/Studies/Religious Primes and Morality/R/r&m data.csv")
+
+# Make dummy codes
+ds$cond <- factor(ds$cond,levels = c(0,1,2),
+                  labels=c('Control', 'Agent', 'Institutional'))
+# Dummy code
+ds$condAgent <- ifelse(ds$cond == "Agent", 1,0)
+ds$condInst <- ifelse(ds$cond == "Institutional", 1,0)
+# Effect code the dummy codes; changes control to -1
+ds$condAgent[ds$cond == 'Control'] <- -1
+ds$condInst[ds$cond == 'Control'] <- -1
+# Remove NA conditions
+ds <- ds[!is.na(ds$cond),] # Total n = 475 participants
+
+# Remove non-US sample
+ds <- ds[ds$us != 0 | is.na(ds$us),] # 282 participants (193 non-us)
+#ds <- ds[ds$relaff != 4 , ] # 173 participants (removed 6 Hindus)
+#ds <- ds[ds$relaff == 4 , ] # Hindus only
+
+# Task failures
+ds <- ds[ds$a_tot == 1 | is.na(ds$a_tot) , ] # 282 participants (0 failed agent task)
+ds <- ds[ds$i_tot == 1 | is.na(ds$i_tot) , ] # 281 participants (1 failed inst task)
+ds <- ds[ds$c_tot == 1 | is.na(ds$c_tot) , ] # 280 participants (1 failed control task)
+
+# Religious interest
+ds <- ds[ds$relint >= 3 | is.na(ds$relint) , ] # 188 participants (88 low rel int)
+
+# Convenience variables
+CareItems <- c('mfq5','mfq6','mfq9','mfq18','mfq19','mfq20') 
+FairnessItems <- c('mfq7','mfq13','mfq14','mfq22','mfq27','mfq31')
+IngroupItems <- c('mfq3','mfq11','mfq24','mfq25','mfq26')
+AuthorityItems <- c('mfq4','mfq12','mfq15','mfq21','mfq23','mfq28')
+PurityItems <- c('mfq2','mfq8','mfq10','mfq16','mfq17','mfq29')
+InItems <- c('ie2','ie4','ie7','ie10','ie13','ie14','ie15','ie18','ie19','ie9')
+religItems <- c('relint','big','if_rel','pray','relserv')# relInterest, BiG, ident fusion, freq prayer, freq rel service attendance
+
+  ## Means of convenience variables
+  ds$careMeans <- rowMeans(ds[, CareItems], na.rm=TRUE)
+  ds$fairMeans <- rowMeans(ds[, FairnessItems], na.rm=TRUE)
+  ds$groupMeans <- rowMeans(ds[, IngroupItems], na.rm=TRUE)
+  ds$authMeans <- rowMeans(ds[, AuthorityItems], na.rm=TRUE)
+  ds$pureMeans <- rowMeans(ds[, PurityItems], na.rm=TRUE)
+  ds$inMeans <- rowMeans(ds[, InItems], na.rm=TRUE)
+  ds$rfMeans <- rowMeans(ds[, RFItems], na.rm=TRUE)
+
+# Unreverse items
+RFItems <- paste0('rf',1:12)
+RFRevItems <- paste0('rf',c(2,4,7,9,10,12))
+ds[,paste0('rf',c(2,4,7,9,10,12),'r')] <- ds[,RFRevItems]
+ds[RFRevItems] <- 10 - ds[RFRevItems]
+
+# Make matrices
+data <- as.matrix(ds[, c(CareItems, FairnessItems, IngroupItems, AuthorityItems, PurityItems, RFItems, "condAgent", "condInst", InItems,religItems)])
+data <- data[complete.cases(data), ] # 174 participants (14 incomplete)
+ds <- as.data.frame(data)
+rf <- scale(as.matrix(data[, RFItems]))
+care <- scale(as.matrix(data[, CareItems]))
+fair <- scale(as.matrix(data[, FairnessItems]))
+group <- scale(as.matrix(data[, IngroupItems]))
+auth <- scale(as.matrix(data[, AuthorityItems]))
+pure <- scale(as.matrix(data[, PurityItems]))
+intr <- scale(as.matrix(data[,InItems]))
+relig <- scale(as.matrix(data[,religItems]))
+relig[,2] <- -1*relig[,2] # Reverse code
+
+# Stan
+options(mc.cores = 4)
+stan_data.norfin <-list(N=nrow(data),agent=data[,'condAgent'],inst=data[,'condInst'],rf=rf,intr=intr,harm=care,fair=fair,group=group,auth=auth,pure=pure,relig=relig,rf_enabled=0,in_enabled=0) 
+stan_data.norf <- list(N=nrow(data),agent=data[,'condAgent'],inst=data[,'condInst'],rf=rf,intr=intr,harm=care,fair=fair,group=group,auth=auth,pure=pure,relig=relig,rf_enabled=0,in_enabled=1)
+stan_data.rf <- list(N=nrow(data),agent=data[,'condAgent'],inst=data[,'condInst'],rf=rf,intr=intr,harm=care,fair=fair,group=group,auth=auth,pure=pure,relig=relig,rf_enabled=1,in_enabled=1)
+
+stanOut.norfin <- stan(file='ro_model (update) - SM.stan',data=stan_data.norfin,chains=4,control=list(adapt_delta=.95),iter=10000)
+stanOut.norf <- stan(file='ro_model (update) - SM.stan',data=stan_data.norf,chains=4,control=list(adapt_delta=.95),iter=10000)
+stanOut.rf <- stan(file='ro_model (update) - SM.stan',data=stan_data.rf,chains=4,control=list(adapt_delta=.95),iter=10000)
+
+  ## General Religiousness
+stan_data.norfin <-list(N=nrow(data.rf),agent=data.rf[,'condAgent'],inst=data.rf[,'condInst'],rf=rf,intr=intr,harm=care,fair=fair,group=group,auth=auth,pure=pure,rf_enabled=0,in_enabled=0) 
+stan_data.norf <- list(N=nrow(data.rf),agent=data.rf[,'condAgent'],inst=data.rf[,'condInst'],rf=rf,intr=intr,harm=care,fair=fair,group=group,auth=auth,pure=pure,rf_enabled=0,in_enabled=1,relig=relig)
+stan_data.rf <- list(N=nrow(data.rf),agent=data.rf[,'condAgent'],inst=data.rf[,'condInst'],rf=rf,intr=intr,harm=care,fair=fair,group=group,auth=auth,pure=pure,rf_enabled=1,in_enabled=1)
+
+stanOut.norfin <- stan(file='gen religiousness/ro_model.stan',data=stan_data.norfin,chains=4,control=list(adapt_delta=.95),iter=10000)
+stanOut.norf <- stan(file='gen religiousness/ro_model.stan',data=stan_data.norf,chains=4,control=list(adapt_delta=.95),iter=10000)
+stanOut.rf <- stan(file='gen religiousness/ro_model.stan',data=stan_data.rf,chains=4,control=list(adapt_delta=.95),iter=10000)
+
+# Convenience variables
+betas.cond.rf <- paste0('beta',c('AR','IR','ARDummy','IRDummy'))
+betas.cond.hfgap <- paste0('beta',c('AH','AF','AG','AAu','AP','IH','IF','IG','IAu','IP'))
+betas.cond.inxn <- paste0('beta',c('AxInH','AxInF','AxInG','AxInAu','AxInP','IxInH','IxInF','IxInG','IxInAu','IxInP'))
+betas.cond.dummy <- paste0('beta',c('AHFGAP','IHFGAP'),'Dummy')
+betas.cond.dummyInxn <- paste0(betas.cond.dummy,'Inxn')
+betas.indirect <- c('ARH','ARF','ARG','ARA','ARP','IRH','IRF','IRG','IRA','IRP')
+betas.rf.hfgap <- paste0('beta',c('RH','RF','RG','RAu','RP'),'_std')
+
+# Posterior probability of positivity
+ppp <- function(stanOut,pars){
+  samps <- as.matrix(stanOut,pars=pars)
+  ppps <- apply(samps,2,function(x){mean(x > 0)})
+  ppps
+}
+
+# Makes correlation matrix; defaults to 4 chains, 5 variables [HFGAP from MFQ]
+cors <- function(stanOut,par='phiHFGAP_cor',chains=4,nVars=5){
+  matrix(get_posterior_mean(stanOut,pars=par)[,chains+1],nVars)
+}
+# Residual correlations
+cors(stanOut.norfin)
+cors(stanOut.norf)
+cors(stanOut.rf)
+
+# Direct effects, no inxn, No RF
+summary(stanOut.norfin,pars=c(betas.cond.dummy))$summary[,c(1,3,4,8)]
+ppp(stanOut.norfin,pars=betas.cond.dummy)
+
+# Direct effects, with inxns, no RF
+summary(stanOut.norf,pars=c(betas.cond.dummy,betas.cond.dummyInxn))$summary[,c(1,3,4,8)]
+ppp(stanOut.norf,pars=c(betas.cond.dummy,betas.cond.dummyInxn))
+
+# Direct effects, with inxns, with RF
+summary(stanOut.rf,pars=c(betas.cond.dummy,betas.cond.dummyInxn))$summary[,c(1,3,4,8)]
+ppp(stanOut.rf,pars=c(betas.cond.dummy,betas.cond.dummyInxn))
+
+# Indirect effects
+summary(stanOut.rf,pars=betas.indirect)$summary[,c(1,3,4,8)]
+ppp(stanOut.rf,pars=betas.indirect)
+
+#  Condition on RF (d scores)
+summary(stanOut.rf,pars=betas.cond.rf)$summary[,c(1,3,4,8)]
+ppp(stanOut.rf,pars=betas.cond.rf)
+
+# RF to HFGAP (standardized)
+summary(stanOut.rf,pars=betas.rf.hfgap)$summary[,c(1,3,4,8)]
+ppp(stanOut.rf,pars=betas.rf.hfgap)
+
+launch_shinystan(stanOut.norf)
